@@ -4,6 +4,17 @@ import { useTauriFS } from "./hooks/useTauriFS";
 import { Sidebar } from "./components/Sidebar";
 import { ExcalidrawCanvas } from "./components/ExcalidrawCanvas";
 
+function findFileByPath(tree: FileItem[], path: string): FileItem | null {
+  for (const item of tree) {
+    if (item.path === path) return item;
+    if (item.isFolder && item.children) {
+      const found = findFileByPath(item.children, path);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function App() {
   const [fileTree, setFileTree] = useState<FileItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
@@ -17,6 +28,9 @@ function App() {
     try {
       const tree = await listDir();
       setFileTree(tree);
+      setSelectedFile((prev) =>
+        prev === null ? null : findFileByPath(tree, prev.path)
+      );
     } catch (err) {
       setTreeError(String(err));
     } finally {
