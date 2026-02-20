@@ -3,17 +3,7 @@ import { FileItem } from "./types";
 import { useTauriFS } from "./hooks/useTauriFS";
 import { Sidebar } from "./components/Sidebar";
 import { ExcalidrawCanvas } from "./components/ExcalidrawCanvas";
-
-function findFileByPath(tree: FileItem[], path: string): FileItem | null {
-  for (const item of tree) {
-    if (item.path === path) return item;
-    if (item.isFolder && item.children) {
-      const found = findFileByPath(item.children, path);
-      if (found) return found;
-    }
-  }
-  return null;
-}
+import { findFileByPath } from "./utils/fileTree";
 
 function App() {
   const [fileTree, setFileTree] = useState<FileItem[]>([]);
