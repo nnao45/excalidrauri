@@ -4,6 +4,7 @@ use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Create base canvas directory on startup
             let base_dir = commands::resolve_base_dir(app.handle())?;
@@ -21,12 +22,14 @@ pub fn run() {
             commands::rename_item,
             commands::read_canvas,
             commands::save_canvas,
+            commands::copy_canvas,
             commands::get_base_directory,
             commands::trash_item,
             commands::list_trash,
             commands::restore_item,
             commands::delete_permanently,
             commands::empty_trash,
+            commands::set_item_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

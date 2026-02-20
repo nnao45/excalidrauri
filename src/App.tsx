@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { Pencil } from "lucide-react";
 import { FileItem } from "./types";
 import { useTauriFS } from "./hooks/useTauriFS";
 import { Sidebar } from "./components/Sidebar";
-import { ExcalidrawCanvas } from "./components/ExcalidrawCanvas";
 import { findFileByPath } from "./utils/fileTree";
 
 function App() {
@@ -42,7 +42,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-header-left">
-          <span className="app-logo">✏️</span>
+          <span className="app-logo"><Pencil size={20} /></span>
           <span className="app-title">excalidrauri</span>
         </div>
         {isLoadingTree && (
@@ -61,7 +61,9 @@ function App() {
           onRefresh={refreshFileTree}
         />
         <main className="app-main">
-          <ExcalidrawCanvas selectedFile={selectedFile} />
+          <Suspense fallback={<div className="canvas-placeholder">キャンバス読み込み中...</div>}>
+            <ExcalidrawCanvas selectedFile={selectedFile} />
+          </Suspense>
         </main>
       </div>
     </div>
@@ -69,3 +71,9 @@ function App() {
 }
 
 export default App;
+
+const ExcalidrawCanvas = lazy(() =>
+  import("./components/ExcalidrawCanvas").then((mod) => ({
+    default: mod.ExcalidrawCanvas,
+  }))
+);

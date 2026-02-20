@@ -1,8 +1,14 @@
+import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types/types";
+
 export interface FileItem {
   name: string;
   path: string;
   isFolder: boolean;
   children?: FileItem[];
+  icon?: string;
+  iconColor?: string;
+  modified?: number;
+  size?: number;
 }
 
 export interface TrashItem {
@@ -20,17 +26,4 @@ export interface ContextMenuState {
   parentPath: string;
 }
 
-export interface CanvasData {
-  type: "excalidraw";
-  version: number;
-  elements: unknown[];
-  appState: {
-    viewBackgroundColor?: string;
-    zoom?: { value: number };
-    scrollX?: number;
-    scrollY?: number;
-    gridSize?: number | null;
-    [key: string]: unknown;
-  };
-  files: Record<string, unknown>;
-}
+export type CanvasData = ExcalidrawInitialDataState;

@@ -67,11 +67,15 @@ vi.mock("./components/Sidebar", () => ({
   ),
 }));
 
-vi.mock("./components/ExcalidrawCanvas", () => ({
-  ExcalidrawCanvas: vi.fn(({ selectedFile }: { selectedFile: FileItem | null }) => (
+vi.mock("./components/ExcalidrawCanvas", () => {
+  const Canvas = ({ selectedFile }: { selectedFile: FileItem | null }) => (
     <div data-testid="canvas">{selectedFile?.path ?? "no-file"}</div>
-  )),
-}));
+  );
+  return {
+    ExcalidrawCanvas: vi.fn(Canvas),
+    default: Canvas,
+  };
+});
 
 describe("App", () => {
   beforeEach(() => {

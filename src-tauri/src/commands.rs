@@ -11,6 +11,11 @@ pub struct FileItem {
     #[serde(rename = "isFolder")]
     pub is_folder: bool,
     pub children: Option<Vec<FileItem>>,
+    pub icon: Option<String>,
+    #[serde(rename = "iconColor")]
+    pub icon_color: Option<String>,
+    pub modified: Option<u64>,
+    pub size: Option<u64>,
 }
 
 /// Resolve the base directory for canvas storage.
@@ -92,6 +97,15 @@ fn collect_items(base: &PathBuf, dir: &PathBuf) -> Result<Vec<FileItem>, String>
             .unwrap_or_default();
 
         let is_folder = metadata.is_dir();
+        
+        // Load icon from metadata file
+        let (icon, icon_color) = load_item_icon(base, &relative_path);
+        
+        // Get file metadata
+        let modified = metadata.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        let size = if !is_folder { Some(metadata.len()) } else { None };
 
         if is_folder {
             let children = collect_items(base, &entry_path)?;
@@ -100,6 +114,10 @@ fn collect_items(base: &PathBuf, dir: &PathBuf) -> Result<Vec<FileItem>, String>
                 path: relative_path,
                 is_folder: true,
                 children: Some(children),
+                icon,
+                icon_color,
+                modified,
+                size,
             });
         } else if name.ends_with(".excalidraw") {
             items.push(FileItem {
@@ -107,6 +125,10 @@ fn collect_items(base: &PathBuf, dir: &PathBuf) -> Result<Vec<FileItem>, String>
                 path: relative_path,
                 is_folder: false,
                 children: None,
+                icon,
+                icon_color,
+                modified,
+                size,
             });
         }
         // Skip non-.excalidraw files silently
@@ -215,6 +237,41 @@ pub fn save_canvas(app: AppHandle, path: String, content: String) -> Result<(), 
     }
 
     fs::write(&full_path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn copy_canvas(app: AppHandle, source_path: String, dest_path: String) -> Result<(), String> {
+    safe_relative_path(&source_path)?;
+    safe_relative_path(&dest_path)?;
+    let base = get_base_dir(&app)?;
+    let source = base.join(&source_path);
+    let dest = base.join(&dest_path);
+
+    if !source.exists() {
+        return Err("Source file does not exist".to_string());
+    }
+
+    if dest.exists() {
+        return Err("Destination file already exists".to_string());
+    }
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    fs::copy(&source, &dest).map_err(|e| e.to_string())?;
+    
+    // Copy icon metadata if exists
+    let meta_dir = base.join(".meta");
+    let source_meta = get_icon_meta_path(&base, &source_path);
+    let dest_meta = get_icon_meta_path(&base, &dest_path);
+    
+    if source_meta.exists() {
+        fs::create_dir_all(&meta_dir).map_err(|e| e.to_string())?;
+        let _ = fs::copy(&source_meta, &dest_meta);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -376,6 +433,44 @@ pub fn empty_trash(app: AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn get_icon_meta_path(base: &PathBuf, item_path: &str) -> PathBuf {
+    let meta_dir = base.join(".meta");
+    let safe_path = item_path.replace('/', "_").replace('\\', "_");
+    meta_dir.join(format!("{}.icon", safe_path))
+}
+
+fn load_item_icon(base: &PathBuf, item_path: &str) -> (Option<String>, Option<String>) {
+    let meta_path = get_icon_meta_path(base, item_path);
+    if let Ok(content) = fs::read_to_string(meta_path) {
+        // Format: "iconName:color" or just "iconName"
+        let parts: Vec<&str> = content.split(':').collect();
+        if parts.len() == 2 {
+            (Some(parts[0].to_string()), Some(parts[1].to_string()))
+        } else {
+            (Some(content), None)
+        }
+    } else {
+        (None, None)
+    }
+}
+
+#[tauri::command]
+pub fn set_item_icon(app: AppHandle, path: String, icon: String, color: Option<String>) -> Result<(), String> {
+    safe_relative_path(&path)?;
+    let base = get_base_dir(&app)?;
+    let meta_dir = base.join(".meta");
+    
+    fs::create_dir_all(&meta_dir).map_err(|e| e.to_string())?;
+    
+    let meta_path = get_icon_meta_path(&base, &path);
+    let content = if let Some(c) = color {
+        format!("{}:{}", icon, c)
+    } else {
+        icon
+    };
+    fs::write(meta_path, content).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

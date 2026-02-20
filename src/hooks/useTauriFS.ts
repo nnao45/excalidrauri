@@ -37,6 +37,13 @@ export function useTauriFS() {
     []
   );
 
+  const copyCanvas = useCallback(
+    (sourcePath: string, destPath: string): Promise<void> => {
+      return invoke("copy_canvas", { sourcePath, destPath });
+    },
+    []
+  );
+
   const getBaseDirectory = useCallback((): Promise<string> => {
     return invoke<string>("get_base_directory");
   }, []);
@@ -61,6 +68,10 @@ export function useTauriFS() {
     return invoke("empty_trash");
   }, []);
 
+  const setItemIcon = useCallback((path: string, icon: string, color?: string): Promise<void> => {
+    return invoke("set_item_icon", { path, icon, color: color || null });
+  }, []);
+
   return {
     listDir,
     createFolder,
@@ -69,11 +80,13 @@ export function useTauriFS() {
     renameItem,
     readCanvas,
     saveCanvas,
+    copyCanvas,
     getBaseDirectory,
     trashItem,
     listTrash,
     restoreItem,
     deletePermanently,
     emptyTrash,
+    setItemIcon,
   };
 }

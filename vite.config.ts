@@ -8,6 +8,19 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  define: {
+    'process.env': {},
+    'global': 'globalThis',
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          excalidraw: ["@excalidraw/excalidraw"],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,
