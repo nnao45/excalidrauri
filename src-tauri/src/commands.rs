@@ -132,7 +132,7 @@ pub fn create_canvas(app: AppHandle, path: String) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    let default_content = r#"{"type":"excalidraw","version":2,"source":"excalidrauri","elements":[],"appState":{"gridSize":null,"viewBackgroundColor":"#ffffff"},"files":{}}"#;
+    let default_content = r##"{"type":"excalidraw","version":2,"source":"excalidrauri","elements":[],"appState":{"gridSize":null,"viewBackgroundColor":"#ffffff"},"files":{}}"##;
     fs::write(&full_path, default_content).map_err(|e| e.to_string())
 }
 
@@ -184,4 +184,244 @@ pub fn save_canvas(app: AppHandle, path: String, content: String) -> Result<(), 
     }
 
     fs::write(&full_path, content).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // ──────────────────────────────────────────────
+    // safe_relative_path のテスト
+    // ──────────────────────────────────────────────
+
+    #[test]
+    fn safe_relative_path_空文字は許可する() {
+        assert!(safe_relative_path("").is_ok());
+    }
+
+    #[test]
+    fn safe_relative_path_通常のファイル名は許可する() {
+        assert!(safe_relative_path("test.excalidraw").is_ok());
+    }
+
+    #[test]
+    fn safe_relative_path_ネストパスは許可する() {
+        assert!(safe_relative_path("folder/test.excalidraw").is_ok());
+    }
+
+    #[test]
+    fn safe_relative_path_深くネストされたパスは許可する() {
+        assert!(safe_relative_path("a/b/c/d/test.excalidraw").is_ok());
+    }
+
+    #[test]
+    fn safe_relative_path_親ディレクトリ参照を拒否する() {
+        let err = safe_relative_path("../secret").unwrap_err();
+        assert!(err.contains("パストラバーサル"), "expected traversal error, got: {err}");
+    }
+
+    #[test]
+    fn safe_relative_path_中間の親ディレクトリ参照を拒否する() {
+        let err = safe_relative_path("folder/../etc/passwd").unwrap_err();
+        assert!(err.contains("パストラバーサル"), "expected traversal error, got: {err}");
+    }
+
+    #[test]
+    fn safe_relative_path_絶対パスを拒否する_ルートスラッシュ() {
+        // Unix: /etc/passwd
+        let result = safe_relative_path("/etc/passwd");
+        assert!(result.is_err(), "absolute path should be rejected");
+    }
+
+    #[test]
+    fn safe_relative_path_複数の親ディレクトリ参照を拒否する() {
+        let err = safe_relative_path("../../etc/shadow").unwrap_err();
+        assert!(err.contains("パストラバーサル"), "expected traversal error, got: {err}");
+    }
+
+    // ──────────────────────────────────────────────
+    // collect_items のテスト
+    // ──────────────────────────────────────────────
+
+    fn make_file(dir: &std::path::Path, name: &str) {
+        fs::write(dir.join(name), "dummy").unwrap();
+    }
+
+    fn make_dir(dir: &std::path::Path, name: &str) -> PathBuf {
+        let p = dir.join(name);
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn collect_items_空ディレクトリは空ベクタを返す() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        let result = collect_items(&base, &base).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn collect_items_excalidrawファイルのみ収集する() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_file(&base, "canvas.excalidraw");
+        make_file(&base, "README.md");
+        make_file(&base, "image.png");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "canvas.excalidraw");
+        assert!(!result[0].is_folder);
+    }
+
+    #[test]
+    fn collect_items_ドットで始まるファイルをスキップする() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_file(&base, ".hidden.excalidraw");
+        make_file(&base, "visible.excalidraw");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "visible.excalidraw");
+    }
+
+    #[test]
+    fn collect_items_ドットで始まるフォルダをスキップする() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_dir(&base, ".git");
+        make_dir(&base, "myFolder");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "myFolder");
+        assert!(result[0].is_folder);
+    }
+
+    #[test]
+    fn collect_items_フォルダはファイルより先に並ぶ() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_file(&base, "zzz.excalidraw");
+        make_dir(&base, "aaa");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_folder, "folder should come first");
+        assert!(!result[1].is_folder, "file should come second");
+    }
+
+    #[test]
+    fn collect_items_同種アイテムはアルファベット順で並ぶ() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_file(&base, "zzz.excalidraw");
+        make_file(&base, "aaa.excalidraw");
+        make_file(&base, "mmm.excalidraw");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].name, "aaa.excalidraw");
+        assert_eq!(result[1].name, "mmm.excalidraw");
+        assert_eq!(result[2].name, "zzz.excalidraw");
+    }
+
+    #[test]
+    fn collect_items_アルファベット順は大文字小文字を区別しない() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_file(&base, "Banana.excalidraw");
+        make_file(&base, "apple.excalidraw");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name.to_lowercase(), "apple.excalidraw");
+        assert_eq!(result[1].name.to_lowercase(), "banana.excalidraw");
+    }
+
+    #[test]
+    fn collect_items_フォルダ内のファイルを再帰的に収集する() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        let sub = make_dir(&base, "subFolder");
+        make_file(&sub, "child.excalidraw");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_folder);
+        assert_eq!(result[0].name, "subFolder");
+        let children = result[0].children.as_ref().unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "child.excalidraw");
+    }
+
+    #[test]
+    fn collect_items_相対パスはスラッシュ区切りになる() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        let sub = make_dir(&base, "folder");
+        make_file(&sub, "canvas.excalidraw");
+
+        let result = collect_items(&base, &base).unwrap();
+        let children = result[0].children.as_ref().unwrap();
+        assert_eq!(children[0].path, "folder/canvas.excalidraw");
+    }
+
+    #[test]
+    fn collect_items_空のフォルダもchildren空ベクタで収集する() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_dir(&base, "emptyFolder");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_folder);
+        assert_eq!(result[0].name, "emptyFolder");
+        let children = result[0].children.as_ref().unwrap();
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn collect_items_複数階層の再帰が正しく動く() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        let a = make_dir(&base, "a");
+        let b = make_dir(&a, "b");
+        make_file(&b, "deep.excalidraw");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 1); // a
+        let a_children = result[0].children.as_ref().unwrap();
+        assert_eq!(a_children.len(), 1); // b
+        let b_children = a_children[0].children.as_ref().unwrap();
+        assert_eq!(b_children.len(), 1); // deep.excalidraw
+        assert_eq!(b_children[0].name, "deep.excalidraw");
+        assert_eq!(b_children[0].path, "a/b/deep.excalidraw");
+    }
+
+    #[test]
+    fn collect_items_フォルダとファイルが混在するとき正しくソートする() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        make_file(&base, "z-file.excalidraw");
+        make_dir(&base, "m-folder");
+        make_file(&base, "a-file.excalidraw");
+        make_dir(&base, "z-folder");
+
+        let result = collect_items(&base, &base).unwrap();
+        assert_eq!(result.len(), 4);
+        // フォルダが先、アルファベット順
+        assert_eq!(result[0].name, "m-folder");
+        assert!(result[0].is_folder);
+        assert_eq!(result[1].name, "z-folder");
+        assert!(result[1].is_folder);
+        // ファイルが後、アルファベット順
+        assert_eq!(result[2].name, "a-file.excalidraw");
+        assert!(!result[2].is_folder);
+        assert_eq!(result[3].name, "z-file.excalidraw");
+        assert!(!result[3].is_folder);
+    }
 }
