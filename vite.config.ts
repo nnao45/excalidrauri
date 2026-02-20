@@ -1,7 +1,7 @@
+/// <reference types="vitest" />
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-
-/// <reference types="vitest" />
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -35,7 +35,12 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/main.tsx", "src/test/**"],
+      exclude: [
+        "src/main.tsx",
+        "src/test/**",
+        "src/**/*.{test,spec}.{ts,tsx}",
+        "src/**/*.d.ts",
+      ],
     },
   },
 });
