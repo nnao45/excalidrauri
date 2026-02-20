@@ -1170,6 +1170,8 @@ export function Sidebar({
 
       {iconPickerState.isOpen && iconPickerState.item && (
         <IconPicker
+          currentIcon={iconPickerState.item.icon}
+          currentColor={iconPickerState.item.iconColor}
           onSelect={handleIconSelect}
           onClose={() => setIconPickerState({ isOpen: false, item: null })}
         />

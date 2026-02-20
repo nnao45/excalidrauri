@@ -48,7 +48,6 @@ import {
 } from "lucide-react";
 
 interface IconPickerProps {
-  isOpen: boolean;
   currentIcon?: string;
   currentColor?: string;
   onClose: () => void;
@@ -146,16 +145,14 @@ const iconCategories: IconCategory[] = [
   },
 ];
 
-export function IconPicker({ isOpen, currentIcon, currentColor, onClose, onSelect }: IconPickerProps) {
+export function IconPicker({ currentIcon, currentColor, onClose, onSelect }: IconPickerProps) {
   const pickerRef = useRef<HTMLDivElement>(null);
   const [selectedCategory, setSelectedCategory] = useState(0);
   const [selectedColor, setSelectedColor] = useState(currentColor || "default");
 
   useEffect(() => {
-    if (isOpen) {
-      setSelectedColor(currentColor || "default");
-    }
-  }, [isOpen, currentColor]);
+    setSelectedColor(currentColor || "default");
+  }, [currentColor]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -170,17 +167,13 @@ export function IconPicker({ isOpen, currentIcon, currentColor, onClose, onSelec
       }
     };
 
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleEscape);
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside);
-        document.removeEventListener("keydown", handleEscape);
-      };
-    }
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
 
   const getIconColor = (colorValue: string) => {
     return colorValue === "default" ? undefined : colorValue;
