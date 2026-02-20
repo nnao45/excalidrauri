@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FileItem } from "../types";
+import { FileItem, TrashItem } from "../types";
 
 export function useTauriFS() {
   const listDir = useCallback((): Promise<FileItem[]> => {
@@ -41,6 +41,26 @@ export function useTauriFS() {
     return invoke<string>("get_base_directory");
   }, []);
 
+  const trashItem = useCallback((path: string): Promise<void> => {
+    return invoke("trash_item", { path });
+  }, []);
+
+  const listTrash = useCallback((): Promise<TrashItem[]> => {
+    return invoke<TrashItem[]>("list_trash");
+  }, []);
+
+  const restoreItem = useCallback((trashPath: string): Promise<void> => {
+    return invoke("restore_item", { trashPath });
+  }, []);
+
+  const deletePermanently = useCallback((trashPath: string): Promise<void> => {
+    return invoke("delete_permanently", { trashPath });
+  }, []);
+
+  const emptyTrash = useCallback((): Promise<void> => {
+    return invoke("empty_trash");
+  }, []);
+
   return {
     listDir,
     createFolder,
@@ -50,5 +70,10 @@ export function useTauriFS() {
     readCanvas,
     saveCanvas,
     getBaseDirectory,
+    trashItem,
+    listTrash,
+    restoreItem,
+    deletePermanently,
+    emptyTrash,
   };
 }
