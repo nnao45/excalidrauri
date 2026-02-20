@@ -5,6 +5,14 @@ export interface FileItem {
   children?: FileItem[];
 }
 
+export interface TrashItem {
+  name: string;
+  trashPath: string;
+  originalPath: string;
+  isFolder: boolean;
+  trashedAt: number;
+}
+
 export interface ContextMenuState {
   x: number;
   y: number;

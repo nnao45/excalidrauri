@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -19,8 +20,38 @@ pub fn resolve_base_dir(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::
     Ok(app_data.join("canvases"))
 }
 
+/// Resolve the trash directory.
+/// Returns `~/.local/share/com.nnao45.excalidrauri/trash` (or platform equivalent).
+pub fn resolve_trash_dir(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let app_data = app.path().app_data_dir()?;
+    Ok(app_data.join("trash"))
+}
+
 fn get_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
     resolve_base_dir(app).map_err(|e| e.to_string())
+}
+
+fn get_trash_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    resolve_trash_dir(app).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TrashItem {
+    pub name: String,
+    #[serde(rename = "trashPath")]
+    pub trash_path: String,
+    #[serde(rename = "originalPath")]
+    pub original_path: String,
+    #[serde(rename = "isFolder")]
+    pub is_folder: bool,
+    #[serde(rename = "trashedAt")]
+    pub trashed_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TrashMeta {
+    original_path: String,
+    trashed_at: u64,
 }
 
 /// Validate that a relative path does not escape the base directory (no `..` components).
@@ -184,6 +215,167 @@ pub fn save_canvas(app: AppHandle, path: String, content: String) -> Result<(), 
     }
 
     fs::write(&full_path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn trash_item(app: AppHandle, path: String) -> Result<(), String> {
+    safe_relative_path(&path)?;
+    let base = get_base_dir(&app)?;
+    let trash = get_trash_dir(&app)?;
+
+    fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
+
+    let source = base.join(&path);
+    // Validate source exists before attempting move
+    fs::metadata(&source).map_err(|e| e.to_string())?;
+
+    let original_name = source
+        .file_name()
+        .ok_or("Invalid path")?
+        .to_string_lossy()
+        .to_string();
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let trash_name = format!("{}_{}", ts, original_name);
+    let dest = trash.join(&trash_name);
+
+    fs::rename(&source, &dest).map_err(|e| e.to_string())?;
+
+    let meta = TrashMeta {
+        original_path: path,
+        trashed_at: ts,
+    };
+    let meta_json = serde_json::to_string(&meta).map_err(|e| e.to_string())?;
+    let meta_path = trash.join(format!("{}.meta", trash_name));
+    fs::write(&meta_path, meta_json).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_trash(app: AppHandle) -> Result<Vec<TrashItem>, String> {
+    let trash = get_trash_dir(&app)?;
+
+    if !trash.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut items = Vec::new();
+    let entries = fs::read_dir(&trash).map_err(|e| e.to_string())?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        if name.ends_with(".meta") {
+            continue;
+        }
+
+        let entry_meta = entry.metadata().map_err(|e| e.to_string())?;
+        let is_folder = entry_meta.is_dir();
+
+        let meta_path = trash.join(format!("{}.meta", name));
+        let meta_json = match fs::read_to_string(&meta_path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let meta: TrashMeta = match serde_json::from_str(&meta_json) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        let original_name = Path::new(&meta.original_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| name.clone());
+
+        let display_name = if !is_folder && original_name.ends_with(".excalidraw") {
+            original_name[..original_name.len() - ".excalidraw".len()].to_string()
+        } else {
+            original_name
+        };
+
+        items.push(TrashItem {
+            name: display_name,
+            trash_path: name,
+            original_path: meta.original_path,
+            is_folder,
+            trashed_at: meta.trashed_at,
+        });
+    }
+
+    items.sort_by(|a, b| b.trashed_at.cmp(&a.trashed_at));
+
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn restore_item(app: AppHandle, trash_path: String) -> Result<(), String> {
+    let trash = get_trash_dir(&app)?;
+    let base = get_base_dir(&app)?;
+
+    let source = trash.join(&trash_path);
+    let meta_path = trash.join(format!("{}.meta", trash_path));
+
+    let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+    let meta: TrashMeta = serde_json::from_str(&meta_json).map_err(|e| e.to_string())?;
+
+    safe_relative_path(&meta.original_path)?;
+    let dest = base.join(&meta.original_path);
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    fs::rename(&source, &dest).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(&meta_path);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_permanently(app: AppHandle, trash_path: String) -> Result<(), String> {
+    let trash = get_trash_dir(&app)?;
+
+    let target = trash.join(&trash_path);
+    let meta_path = trash.join(format!("{}.meta", trash_path));
+
+    let target_meta = fs::metadata(&target).map_err(|e| e.to_string())?;
+    if target_meta.is_dir() {
+        fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+    } else {
+        fs::remove_file(&target).map_err(|e| e.to_string())?;
+    }
+
+    let _ = fs::remove_file(&meta_path);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn empty_trash(app: AppHandle) -> Result<(), String> {
+    let trash = get_trash_dir(&app)?;
+
+    if !trash.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(&trash).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let m = entry.metadata().map_err(|e| e.to_string())?;
+        if m.is_dir() {
+            fs::remove_dir_all(entry.path()).map_err(|e| e.to_string())?;
+        } else {
+            fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
